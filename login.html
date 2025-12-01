@@ -42,10 +42,10 @@
   <!-- Bootstrap JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- LÓGICA: login contra API FastAPI + bloqueo por intentos + sesión con expiración -->
+
   <script>
     (function () {
-      // 👇 IMPORTANTE: FastAPI corre en 127.0.0.1:3000
+      
       const API_LOGIN = "http://127.0.0.1:3000/api/auth/login";
 
       const form = document.getElementById("form-login");
@@ -107,7 +107,7 @@
           show("danger", "Cuenta temporalmente bloqueada. Intenta nuevamente en " + secs + "s.");
           return true;
         }
-        // si ya pasó el lock, limpiamos bloqueo e intentos
+        
         if (getLockUntil() && !isLocked()) {
           clearLock();
           resetAttempts();

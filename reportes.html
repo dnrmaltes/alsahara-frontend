@@ -94,7 +94,7 @@
     </div>
   </div>
 
-  <!-- Totales por categoría (todo en “General” porque la API no trae categoría) -->
+ 
   <div class="card shadow-sm mb-3">
     <div class="card-body">
       <h2 class="h6 mb-3">Totales por categoría</h2>
@@ -138,7 +138,7 @@
 <script>
 (function(){
   const $ = (id)=>document.getElementById(id);
-  // 👇 Ruta REAL de tu backend
+ 
   const API = "http://localhost:3000/api/reportes/ventas";
 
   const money   = n => "$" + Number(n||0).toLocaleString();
@@ -146,7 +146,7 @@
 
   // Boletas del backend
   let boletasAPI = [];
-  // Boletas simuladas en front (para mostrar algo aunque el store.boletas esté vacío)
+  // Boletas simuladas en front 
   let boletasSimuladas = [];
 
   function getBoletasCombinadas(){
@@ -195,7 +195,7 @@
     $("k-avg").textContent    = money(avg);
     $("k-last").textContent   = last ? fmtDate(last.fecha) : "—";
 
-    // “Categorías”: todo metido en una categoría general
+    // “Categorías”
     const tbodyCat = $("tbody-cat");
     if (filtered.length === 0) {
       tbodyCat.innerHTML = `<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>`;

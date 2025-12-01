@@ -109,9 +109,7 @@
       function show(el){ el.classList.remove("d-none"); }
       function hide(el){ el.classList.add("d-none"); }
     
-      // ================================
-      // 💾 Datos guardados en localStorage
-      // ================================
+    
       const orderId   = localStorage.getItem("alsahara.orderId");
       const paymentId = localStorage.getItem("alsahara.paymentId");
       const totalStr  = localStorage.getItem("alsahara.paymentTotal");
@@ -119,26 +117,20 @@
       const session   = JSON.parse(localStorage.getItem("alsahara.session") || "null");
       const customerEmail = session?.email || "";
     
-      // ================================
-      // Si faltan datos → no hay boleta
-      // ================================
+   
       if(!orderId || !paymentId || !totalStr){
         show($("missing"));
         hide($("receipt"));
         return;
       }
     
-      // ================================
-      // 🧾 Render cabecera boleta
-      // ================================
+      
       $("r-date").textContent  = new Date().toLocaleString();
       $("r-order").textContent = orderId;
       $("r-pay").textContent   = paymentId;
       $("r-email").textContent = customerEmail ? ("Email: " + customerEmail) : "";
     
-      // ================================
-      // 🛒 Items del carrito
-      // ================================
+     
       let items = [];
       if(cartJson){ try{ items = JSON.parse(cartJson) || []; } catch(_){ items = []; } }
     
@@ -149,9 +141,7 @@
         items = [{ name:"Consumo Al Sahara", qty:1, price:total }];
       }
     
-      // ================================
-      // 💰 Totales
-      // ================================
+     
       let subtotal = 0;
       $("r-items").innerHTML = items.map(it=>{
         const qty  = Number(it.qty||1);
@@ -180,9 +170,7 @@
     
       show($("receipt"));
     
-      // ================================
-      // 🔥 FASTAPI: guardar boleta real
-      // ================================
+    
       const API_BOLETAS = "http://localhost:3000/api/boletas";
       const API_CLIENTES= "http://localhost:3000/api/clientes";
     
@@ -220,18 +208,13 @@
         }
       }
     
-      // Guardar EN SEGUNDO PLANO (sin bloquear UI)
       enviarBoletaAPI();
       syncCliente();
     
-      // ================================
-      // 🖨 Imprimir
-      // ================================
+     
       $("btn-print").addEventListener("click", ()=> window.print());
     
-      // ================================
-      // 📩 Enviar email (simulado)
-      // ================================
+      
       $("btn-email").addEventListener("click", ()=>{
         const msg = $("msg");
         msg.classList.remove("d-none","alert-danger","alert-warning");

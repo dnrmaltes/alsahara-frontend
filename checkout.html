@@ -108,7 +108,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     (function(){
-      // --------- Mock de carrito / total ---------
+     
       const savedTotal = Number(localStorage.getItem("alsahara.cart.total") || 18990);
     
       let cartItems = [];
@@ -243,7 +243,7 @@
                 orderId,
                 paymentId,
                 total: savedTotal,
-                items: cartItems   // 👈 se envían los ítems reales del carro
+                items: cartItems   // 
               })
             });
             const data = await res.json();

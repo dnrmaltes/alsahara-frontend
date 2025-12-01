@@ -133,7 +133,6 @@
       const $ = (id)=>document.getElementById(id);
       const msg = $("msg");
 
-      // ✅ endpoint FastAPI para clientes
       const API_CLIENTES = "http://localhost:3000/api/clientes";
 
       function showMsg(type, text){
@@ -197,9 +196,9 @@
         renderSteps(shipment.status);
       }
 
-      // ✅ función para registrar/actualizar cliente en FastAPI (no rompe si falla)
+      
       async function syncClienteConAPI(email, nombre){
-        if(!email) return; // si no pone correo, no intentamos nada
+        if(!email) return; 
         try {
           await fetch(API_CLIENTES, {
             method: "POST",
@@ -247,7 +246,7 @@
         renderSteps(shipment.status);
         showMsg("success","Orden de despacho creada. Tracking: " + shipment.tracking);
 
-        // ✅ disparar sincronización con FastAPI en segundo plano
+        
         syncClienteConAPI(data.email, data.receiver);
       });
 

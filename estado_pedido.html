@@ -92,7 +92,7 @@
       const $ = (id)=>document.getElementById(id);
       const msg = $("msg");
   
-      // 👉 Endpoint real de la API (ajústalo si usas otro)
+      
       const API_TRACK = "http://localhost:3000/api/pedidos/";
   
       const STATES = ["CREATED","WAREHOUSE","ONROUTE","DELIVERED"];
@@ -109,7 +109,6 @@
         DELIVERED: "Pedido entregado en destino."
       };
   
-      // Helpers
       function showMsg(type, text){
         msg.className = "alert alert-" + type;
         msg.textContent = text;
@@ -118,7 +117,7 @@
       function hideMsg(){ msg.classList.add("d-none"); }
       function nowStr(){ return new Date().toLocaleString(); }
   
-      // localStorage como respaldo (lo que ya usabas con US-09)
+      
       function loadShipmentLS(){
         try { return JSON.parse(localStorage.getItem("alsahara.shipment") || "null"); }
         catch(_){ return null; }
@@ -144,17 +143,16 @@
         $("result").classList.remove("d-none");
       }
   
-      // -------- CONSULTA PRINCIPAL: primero API, luego respaldo local --------
+      
       async function lookup(tracking, {silent=false} = {}){
         hideMsg();
         $("result").classList.add("d-none");
   
-        // 1) Intentar contra la API
         try {
           const res = await fetch(API_TRACK + encodeURIComponent(tracking));
           if (res.ok) {
             const data = await res.json();
-            // Intentamos mapear campos típicos
+            
             const pedido = {
               tracking: data.tracking || data.codigo || tracking,
               status:   data.status   || data.estado   || "CREATED",
@@ -169,7 +167,7 @@
           if (!silent) showMsg("warning", "No se pudo contactar al servidor, intentando con datos locales…");
         }
   
-        // 2) Respaldo: lo que dejó US-09 en localStorage
+      
         const s = loadShipmentLS();
         if(!s || !s.tracking){
           showMsg("warning","No se encontró ninguna orden en este navegador. Genera una en 'Orden de despacho'.");
@@ -183,12 +181,11 @@
         if (!silent) showMsg("secondary","Mostrando estado desde datos locales.");
       }
   
-      // Cargar tracking desde querystring si viene ?t=ALSA-...
+     
       const qs = new URLSearchParams(location.search);
       const tFromQuery = qs.get("t");
       if(tFromQuery){ $("trk").value = tFromQuery; }
   
-      // Al enviar el formulario
       $("form-lookup").addEventListener("submit",(e)=>{
         e.preventDefault();
         const tracking = $("trk").value.trim().toUpperCase();
@@ -199,7 +196,7 @@
         lookup(tracking);
       });
   
-      // Botón actualizar: vuelve a consultar (API + fallback)
+      
       $("btn-refresh").addEventListener("click", ()=>{
         const tracking = $("trk").value.trim().toUpperCase();
         if(!tracking){
@@ -211,7 +208,7 @@
         });
       });
   
-      // “Imprimir comprobante” → a boleta si existe, si no imprime esta página
+     
       $("btn-print").addEventListener("click",(e)=>{
         e.preventDefault();
         if(localStorage.getItem("alsahara.paymentId")){
