@@ -91,6 +91,10 @@
     (function(){
       const $ = (id)=>document.getElementById(id);
       const msg = $("msg");
+  
+      // 👉 Endpoint real de la API (ajústalo si usas otro)
+      const API_TRACK = "http://localhost:3000/api/pedidos/";
+  
       const STATES = ["CREATED","WAREHOUSE","ONROUTE","DELIVERED"];
       const STATUS_LABEL = {
         CREATED:   "Creada",
@@ -104,7 +108,7 @@
         ONROUTE:   "El pedido salió a reparto con el courier.",
         DELIVERED: "Pedido entregado en destino."
       };
-
+  
       // Helpers
       function showMsg(type, text){
         msg.className = "alert alert-" + type;
@@ -113,12 +117,13 @@
       }
       function hideMsg(){ msg.classList.add("d-none"); }
       function nowStr(){ return new Date().toLocaleString(); }
-
-      function loadShipment(){
+  
+      // localStorage como respaldo (lo que ya usabas con US-09)
+      function loadShipmentLS(){
         try { return JSON.parse(localStorage.getItem("alsahara.shipment") || "null"); }
         catch(_){ return null; }
       }
-
+  
       function renderSteps(current){
         document.querySelectorAll(".step").forEach(el=>{
           const code = el.getAttribute("data-s");
@@ -126,37 +131,63 @@
           el.classList.toggle("current", code === current);
         });
       }
-
+  
       function renderResult(s){
         $("r-trk").textContent = s.tracking;
-        $("r-updated").textContent = nowStr();
-        $("r-status").textContent = STATUS_LABEL[s.status] || s.status;
-        $("r-summary").textContent = STATUS_SUMMARY[s.status] || "";
-        renderSteps(s.status);
+        $("r-updated").textContent = s.updatedAt || nowStr();
+  
+        const statusCode = s.status || s.estado || "CREATED";
+        $("r-status").textContent  = STATUS_LABEL[statusCode] || statusCode;
+        $("r-summary").textContent = s.summary || s.resumen || STATUS_SUMMARY[statusCode] || "";
+  
+        renderSteps(statusCode);
         $("result").classList.remove("d-none");
       }
-
-      // Cargar tracking desde querystring si viene ?t=ALSA-...
-      const qs = new URLSearchParams(location.search);
-      const tFromQuery = qs.get("t");
-      if(tFromQuery){ $("trk").value = tFromQuery; }
-
-      function lookup(tracking){
+  
+      // -------- CONSULTA PRINCIPAL: primero API, luego respaldo local --------
+      async function lookup(tracking, {silent=false} = {}){
         hideMsg();
-        const s = loadShipment();
+        $("result").classList.add("d-none");
+  
+        // 1) Intentar contra la API
+        try {
+          const res = await fetch(API_TRACK + encodeURIComponent(tracking));
+          if (res.ok) {
+            const data = await res.json();
+            // Intentamos mapear campos típicos
+            const pedido = {
+              tracking: data.tracking || data.codigo || tracking,
+              status:   data.status   || data.estado   || "CREATED",
+              summary:  data.summary  || data.resumen  || ""
+            };
+            renderResult(pedido);
+            if (!silent) showMsg("success", "Estado obtenido desde el servidor.");
+            return;
+          }
+        } catch (err) {
+          console.error("Error API pedidos:", err);
+          if (!silent) showMsg("warning", "No se pudo contactar al servidor, intentando con datos locales…");
+        }
+  
+        // 2) Respaldo: lo que dejó US-09 en localStorage
+        const s = loadShipmentLS();
         if(!s || !s.tracking){
           showMsg("warning","No se encontró ninguna orden en este navegador. Genera una en 'Orden de despacho'.");
-          $("result").classList.add("d-none");
           return;
         }
         if(s.tracking !== tracking){
           showMsg("info","El tracking ingresado no coincide con la última orden creada aquí. Ingrésalo tal cual aparece (ej. ALSA-CHX-000123).");
-          $("result").classList.add("d-none");
           return;
         }
         renderResult(s);
+        if (!silent) showMsg("secondary","Mostrando estado desde datos locales.");
       }
-
+  
+      // Cargar tracking desde querystring si viene ?t=ALSA-...
+      const qs = new URLSearchParams(location.search);
+      const tFromQuery = qs.get("t");
+      if(tFromQuery){ $("trk").value = tFromQuery; }
+  
       // Al enviar el formulario
       $("form-lookup").addEventListener("submit",(e)=>{
         e.preventDefault();
@@ -167,20 +198,19 @@
         }
         lookup(tracking);
       });
-
-      // Botón actualizar: vuelve a leer de localStorage (por si US-09 avanzó estado)
+  
+      // Botón actualizar: vuelve a consultar (API + fallback)
       $("btn-refresh").addEventListener("click", ()=>{
         const tracking = $("trk").value.trim().toUpperCase();
-        if(!tracking){ showMsg("warning","Ingresa un código para actualizar."); return; }
-        const s = loadShipment();
-        if(!s || s.tracking !== tracking){
-          showMsg("info","No hay cambios para este tracking.");
+        if(!tracking){
+          showMsg("warning","Ingresa un código para actualizar.");
           return;
         }
-        renderResult(s);
-        showMsg("success","Estado actualizado.");
+        lookup(tracking, {silent:true}).then(()=>{
+          showMsg("success","Estado actualizado.");
+        });
       });
-
+  
       // “Imprimir comprobante” → a boleta si existe, si no imprime esta página
       $("btn-print").addEventListener("click",(e)=>{
         e.preventDefault();
@@ -190,7 +220,7 @@
           window.print();
         }
       });
-
+  
       // Autolookup si viene por query
       if(tFromQuery){ lookup(tFromQuery.toUpperCase()); }
     })();

@@ -109,19 +109,34 @@
   <script>
     (function(){
       // --------- Mock de carrito / total ---------
-      // Si hay un total guardado previamente úsalo; si no, crea uno simulado.
       const savedTotal = Number(localStorage.getItem("alsahara.cart.total") || 18990);
-      const sampleItems = [
-        {name:"Falafel x2", price:5990},
-        {name:"Shawarma", price:7990},
-        {name:"Baklava", price:4990},
-      ];
+    
+      let cartItems = [];
+      try {
+        const stored = localStorage.getItem("alsahara.cart");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) cartItems = parsed;
+        }
+      } catch (_) {}
+    
+      if (cartItems.length === 0) {
+        cartItems = [
+          {name:"Falafel x2", qty:2, price:2995},
+          {name:"Shawarma",   qty:1, price:7990},
+          {name:"Baklava",    qty:1, price:4990},
+        ];
+      }
+    
       document.getElementById("cart-total").textContent = "$" + savedTotal.toLocaleString();
-      document.getElementById("cart-list").innerHTML = sampleItems.map(i=>`
-        <div class="d-flex justify-content-between"><span>${i.name}</span><span>$${i.price.toLocaleString()}</span></div>
+      document.getElementById("cart-list").innerHTML = cartItems.map(i=>`
+        <div class="d-flex justify-content-between">
+          <span>${i.name}</span>
+          <span>$${Number(i.price||0).toLocaleString()}</span>
+        </div>
       `).join("");
-
-      // --------- Helpers ---------
+    
+      // -------- Helpers --------
       const msg = document.getElementById("msg");
       function show(type, text){
         msg.className = "alert alert-" + type;
@@ -129,10 +144,9 @@
         msg.classList.remove("d-none");
       }
       function clearMsg(){ msg.classList.add("d-none"); }
-
+    
       function onlyDigits(s){ return (s||"").replace(/\D/g,""); }
       function luhnOk(num){
-        // Valida Luhn simple
         num = onlyDigits(num);
         let sum=0, dbl=false;
         for(let i=num.length-1;i>=0;i--){
@@ -143,25 +157,23 @@
         return (sum%10)===0;
       }
       function validExpiry(v){
-        // MM/AA futuro
         const m = /^(\d{2})\/(\d{2})$/.exec(v||"");
         if(!m) return false;
         const mm = +m[1], yy = +m[2];
         if(mm<1 || mm>12) return false;
         const now = new Date();
         const year = 2000 + yy;
-        const exp = new Date(year, mm); // primer día del mes siguiente
+        const exp = new Date(year, mm);
         return exp > now;
       }
       function validCVV(v){ return /^\d{3,4}$/.test(v||""); }
-
-      // --------- Simulación de pasarela ---------
+    
+      // -------- Pasarela simulada --------
       function openGatewayAndResolve(card){
         return new Promise((resolve)=>{
           const modal = new bootstrap.Modal(document.getElementById('gatewayModal'), {backdrop:'static', keyboard:false});
           modal.show();
-
-          // Simulamos red/tiempos de la pasarela
+    
           setTimeout(()=>{
             const digits = onlyDigits(card);
             if(digits === "4111111111111111"){
@@ -175,60 +187,98 @@
           }, 1800);
         });
       }
-
-      // --------- Submit pago ---------
+    
+      // -------- Submit pago --------
       const form = document.getElementById("pay-form");
       const btn  = document.getElementById("btn-pay");
       form.addEventListener("submit", async (e)=>{
         e.preventDefault();
         clearMsg();
-
+    
         const holder = form.holder.value.trim();
         const number = form.number.value.trim();
         const expiry = form.expiry.value.trim();
         const cvv    = form.cvv.value.trim();
         const terms  = form.terms.checked;
-
-        // Validaciones front
+    
         if(!holder){ show("warning","Debes ingresar el titular de la tarjeta."); return; }
         if(!luhnOk(number)){ show("warning","Número de tarjeta inválido."); return; }
         if(!validExpiry(expiry)){ show("warning","Fecha de expiración inválida o vencida."); return; }
         if(!validCVV(cvv)){ show("warning","CVV inválido."); return; }
         if(!terms){ show("warning","Debes aceptar los términos y condiciones."); return; }
-
+    
         btn.disabled = true;
-
-        // “Redirección” a pasarela (simulada)
+    
+        // Simulamos pasarela:
         const result = await openGatewayAndResolve(number);
-
+    
+        // ===============================
+        //     PAGO APROBADO → INTEGRADO
+        // ===============================
         if(result.status === "approved"){
-          // Escenario 1: aprobado → guardar datos y redirigir a boleta
-          const paymentId = "PAY-" + Math.floor(Math.random()*1e8);
-          const orderId   = "ORD-" + Math.floor(Math.random()*1e8);
-          localStorage.setItem("alsahara.paymentId", paymentId);
-          localStorage.setItem("alsahara.orderId", orderId);
+    
+          const paymentId = "PAY-" + Math.floor(100000 + Math.random()*900000);
+          const orderId   = "ALSA-CHX-" + Math.floor(100000 + Math.random()*900000);
+    
+          // Guardar para boleta.html
+          localStorage.setItem("alsahara.paymentId",    paymentId);
+          localStorage.setItem("alsahara.orderId",      orderId);
           localStorage.setItem("alsahara.paymentTotal", String(savedTotal));
+          localStorage.setItem("alsahara.cart",         JSON.stringify(cartItems));
+    
+          // Estado del pedido
+          const shipment = {
+            tracking: orderId,
+            status:   "CREATED",
+            updatedAt: new Date().toISOString()
+          };
+          localStorage.setItem("alsahara.shipment", JSON.stringify(shipment));
+    
+          // -------- INTEGRACIÓN API /api/boletas --------
+          try{
+            const res = await fetch("/api/boletas", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({
+                orderId,
+                paymentId,
+                total: savedTotal,
+                items: cartItems   // 👈 se envían los ítems reales del carro
+              })
+            });
+            const data = await res.json();
+            console.log("Boleta guardada en backend:", data);
+          }catch(err){
+            console.error("Error guardando boleta en backend:", err);
+          }
+          // ------------------------------------------------
+    
           show("success","Pago aprobado. Redirigiendo a boleta…");
           setTimeout(()=>location.href="boleta.html", 900);
-        }else if(result.status === "declined"){
-          // Escenario 2: rechazado
-          show("danger","Pago rechazado por la pasarela: " + (result.reason || "motivo no especificado"));
-          btn.disabled = false;
-        }else{
-          // Escenario 3: timeout/error
-          show("secondary","No se pudo contactar a la pasarela (timeout). Intenta nuevamente.");
-          btn.disabled = false;
+          return;
         }
+    
+        // RECHAZADO
+        if(result.status === "declined"){
+          show("danger","Pago rechazado por la pasarela: " + (result.reason || ""));
+          btn.disabled = false;
+          return;
+        }
+    
+        // TIMEOUT
+        show("secondary","No se pudo contactar a la pasarela. Intenta nuevamente.");
+        btn.disabled = false;
       });
-
-      // Formateo amigable del número mientras escribe
+    
+      // Formato amigable tarjeta
       const numberInput = document.getElementById("number");
       numberInput.addEventListener("input", ()=>{
         let v = onlyDigits(numberInput.value).slice(0,19);
         v = v.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
         numberInput.value = v;
       });
+    
     })();
-  </script>
+    </script>
 </body>
 </html>

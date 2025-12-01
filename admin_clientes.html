@@ -151,27 +151,18 @@
 (() => {
   const $ = (id)=>document.getElementById(id);
   const msg = $("msg");
+
+  // 👉 AJUSTA AQUÍ si cambias el puerto o el host
+  const API_BASE = "http://localhost:3000/api/clientes";
+
   function showMsg(type, text){
     msg.className = "alert alert-" + type;
     msg.textContent = text;
     msg.classList.remove("d-none");
-    setTimeout(()=>msg.classList.add("d-none"), 1800);
+    setTimeout(()=>msg.classList.add("d-none"), 2000);
   }
 
-  const LS_KEY = "alsahara.clients";
-  const SEED = [
-    {id:1, name:"Ana López",    email:"ana@example.com",   phone:"+56 9 1234 1111", status:"ACTIVE",   rut:"12.345.678-9", address:"Providencia 123"},
-    {id:2, name:"Pedro García", email:"pedro@example.com", phone:"+56 9 1234 2222", status:"INACTIVE", rut:"9.876.543-2",  address:"Ñuñoa 456"},
-    {id:3, name:"Sofía Rivas",  email:"sofia@example.com", phone:"+56 9 1234 3333", status:"ACTIVE",   rut:"21.334.556-7", address:"Macul 789"}
-  ];
-
-  function load(){
-    try{ return JSON.parse(localStorage.getItem(LS_KEY) || "null") || SEED.slice(); }
-    catch(_){ return SEED.slice(); }
-  }
-  function save(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
-
-  let data = load();
+  let data = []; // se llena desde la API
   const state = { q:"", status:"" };
 
   function emailOk(v){ return /\S+@\S+\.\S+/.test(v||""); }
@@ -179,7 +170,8 @@
   function applyFilters(){
     const q = state.q.toLowerCase().trim();
     return data.filter(c=>{
-      const okQ = !q || [c.name,c.email,c.phone,c.rut,c.address].some(v=>String(v||"").toLowerCase().includes(q));
+      const okQ = !q || [c.name,c.email,c.phone,c.rut,c.address]
+        .some(v=>String(v||"").toLowerCase().includes(q));
       const okS = !state.status || c.status===state.status;
       return okQ && okS;
     });
@@ -203,12 +195,16 @@
         <td>${c.email||"—"}</td>
         <td>${c.phone||"—"}</td>
         <td>
-          <span class="chip ${c.status==='ACTIVE'?'ok':'off'}">${c.status==='ACTIVE'?'Activo':'Inactivo'}</span>
+          <span class="chip ${c.status==='ACTIVE'?'ok':'off'}">
+            ${c.status==='ACTIVE'?'Activo':'Inactivo'}
+          </span>
         </td>
         <td class="text-end">
           <div class="btn-group">
             <button class="btn btn-sm btn-outline-primary" data-edit="${c.id}">Editar</button>
-            <button class="btn btn-sm btn-outline-warning" data-toggle="${c.id}">${c.status==='ACTIVE'?'Inactivar':'Activar'}</button>
+            <button class="btn btn-sm btn-outline-warning" data-toggle="${c.id}">
+              ${c.status==='ACTIVE'?'Inactivar':'Activar'}
+            </button>
             <button class="btn btn-sm btn-outline-danger" data-del="${c.id}">Eliminar</button>
           </div>
         </td>
@@ -216,7 +212,56 @@
     `).join("");
   }
 
-  // ---- Inicialización perezosa de modales (fix _initializeBackDrop)
+  // ---- Llamadas a la API ----
+  async function loadFromServer(){
+    try{
+      const res = await fetch(API_BASE);
+      if(!res.ok) throw new Error("Error al obtener clientes ("+res.status+")");
+      const json = await res.json();
+      data = Array.isArray(json) ? json : [];
+      render();
+    }catch(err){
+      console.error(err);
+      showMsg("danger","No se pudieron cargar los clientes.");
+    }
+  }
+
+  async function createClient(payload){
+    const res = await fetch(API_BASE, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json().catch(()=> ({}));
+    if(!res.ok){
+      throw new Error(json.message || "Error al crear cliente");
+    }
+    return json;
+  }
+
+  async function updateClient(id, payload){
+    const res = await fetch(`${API_BASE}/${id}`, {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json().catch(()=> ({}));
+    if(!res.ok){
+      throw new Error(json.message || "Error al actualizar cliente");
+    }
+    return json;
+  }
+
+  async function deleteClient(id){
+    const res = await fetch(`${API_BASE}/${id}`, { method:"DELETE" });
+    const json = await res.json().catch(()=> ({}));
+    if(!res.ok){
+      throw new Error(json.message || "Error al eliminar cliente");
+    }
+    return json;
+  }
+
+  // ---- Inicialización perezosa de modales ----
   let modalForm = null;
   let modalDel  = null;
   function ensureModals(){
@@ -267,9 +312,19 @@
 
     if(btnT){
       const id = +btnT.getAttribute("data-toggle");
-      const i = data.findIndex(x=>x.id===id); if(i<0) return;
-      data[i].status = data[i].status==="ACTIVE" ? "INACTIVE" : "ACTIVE";
-      save(data); render();
+      const c = data.find(x=>x.id===id);
+      if(!c) return;
+      const nuevoEstado = c.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+      // Llamar API para actualizar solo estado
+      updateClient(id, { status:nuevoEstado })
+        .then(()=> {
+          showMsg("success","Estado actualizado.");
+          return loadFromServer();
+        })
+        .catch(err=>{
+          console.error(err);
+          showMsg("danger", err.message);
+        });
     }
 
     if(btnD){
@@ -299,36 +354,54 @@
       return;
     }
 
+    const payload = { name, email, phone, rut, address, status };
+
     if(id){
-      const i = data.findIndex(x=>x.id===id);
-      if(i>=0) data[i] = {...data[i], name,email,phone,rut,address,status};
-      showMsg("success","Cliente actualizado.");
+      updateClient(id, payload)
+        .then(()=>{
+          showMsg("success","Cliente actualizado.");
+          ensureModals(); modalForm.hide();
+          return loadFromServer();
+        })
+        .catch(err=>{
+          console.error(err);
+          showMsg("danger", err.message);
+        });
     }else{
-      const newId = data.length ? Math.max(...data.map(x=>x.id))+1 : 1;
-      data.push({id:newId, name,email,phone,rut,address,status});
-      showMsg("success","Cliente creado.");
+      createClient(payload)
+        .then(()=>{
+          showMsg("success","Cliente creado.");
+          ensureModals(); modalForm.hide();
+          return loadFromServer();
+        })
+        .catch(err=>{
+          console.error(err);
+          showMsg("danger", err.message);
+        });
     }
-    save(data);
-    render();
-    ensureModals(); modalForm.hide();
   });
 
   // Confirmar eliminar
   $("btn-confirm-del").addEventListener("click", ()=>{
     const id = +$("btn-confirm-del").dataset.id;
     if(!id) return;
-    data = data.filter(x=>x.id!==id);
-    save(data);
-    render();
-    showMsg("secondary","Cliente eliminado.");
-    ensureModals(); modalDel.hide();
+    deleteClient(id)
+      .then(()=>{
+        showMsg("secondary","Cliente eliminado.");
+        ensureModals(); modalDel.hide();
+        return loadFromServer();
+      })
+      .catch(err=>{
+        console.error(err);
+        showMsg("danger", err.message);
+      });
   });
 
   // Filtros
   $("search").addEventListener("input",(e)=>{ state.q = e.target.value; render(); });
   $("filter-status").addEventListener("change",(e)=>{ state.status = e.target.value; render(); });
 
-  // Export / Import
+  // Export / Import (usando la data actual en memoria)
   $("btn-export").addEventListener("click", ()=>{
     const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
     const a = document.createElement("a");
@@ -345,8 +418,9 @@
       try{
         const arr = JSON.parse(reader.result);
         if(!Array.isArray(arr)) throw new Error("JSON inválido");
+
+        // En lugar de machacar uno a uno, enviaremos cada cliente a la API
         const sane = arr.map((c,i)=>({
-          id: Number(c.id) || (i+1),
           name: String(c.name||"").trim() || `Cliente ${i+1}`,
           email: String(c.email||"").trim(),
           phone: String(c.phone||"").trim(),
@@ -354,20 +428,29 @@
           address: String(c.address||"").trim(),
           status: c.status==="INACTIVE" ? "INACTIVE" : "ACTIVE"
         })).filter(c=>emailOk(c.email));
-        data = sane;
-        save(data);
-        render();
-        showMsg("success","Clientes importados.");
-        e.target.value = "";
+
+        // Secuencia simple de promesas para no marearte con Promise.all
+        let chain = Promise.resolve();
+        sane.forEach(cl => {
+          chain = chain.then(()=> createClient(cl).catch(()=>{}));
+        });
+
+        chain.then(()=>{
+          showMsg("success","Clientes importados.");
+          e.target.value = "";
+          return loadFromServer();
+        });
+
       }catch(err){
+        console.error(err);
         showMsg("danger","No se pudo importar: "+err.message);
       }
     };
     reader.readAsText(file);
   });
 
-  // Render cuando todo está cargado
-  window.addEventListener("load", render);
+  // Render cuando todo está cargado (primero trae datos del backend)
+  window.addEventListener("load", loadFromServer);
 })();
 </script>
 </body>

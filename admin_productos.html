@@ -4,7 +4,9 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>B-11 · Admin · Productos · Al Sahara</title>
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
   <style>
     body{background:#f7f7f5}
     .card{border-radius:14px}
@@ -34,38 +36,9 @@
   <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
     <h1 class="h4 m-0 flex-grow-1">Administración · Productos</h1>
     <button id="btn-new" class="btn btn-primary">Nuevo producto</button>
-    <button id="btn-export" class="btn btn-outline-secondary">Exportar JSON</button>
-    <label class="btn btn-outline-dark mb-0">
-      Importar JSON <input id="file-import" type="file" accept="application/json" hidden>
-    </label>
   </div>
 
   <div id="msg" class="alert d-none"></div>
-
-  <!-- Filtros -->
-  <div class="row g-3 mb-3">
-    <div class="col-sm-6 col-md-4">
-      <div class="input-group">
-        <span class="input-group-text">Buscar</span>
-        <input id="search" class="form-control" placeholder="Nombre, categoría…">
-      </div>
-    </div>
-    <div class="col-sm-6 col-md-4">
-      <select id="filter-cat" class="form-select">
-        <option value="">Todas las categorías</option>
-        <option>Platos</option>
-        <option>Entradas</option>
-        <option>Postres</option>
-      </select>
-    </div>
-    <div class="col-sm-6 col-md-4">
-      <select id="filter-stock" class="form-select">
-        <option value="">Todos</option>
-        <option value="ok">Disponibles</option>
-        <option value="off">Agotados</option>
-      </select>
-    </div>
-  </div>
 
   <!-- Tabla -->
   <div class="card shadow-sm">
@@ -84,7 +57,7 @@
       </table>
     </div>
     <div id="empty" class="empty p-4 text-center d-none">
-      No hay productos. Crea uno con <b>“Nuevo producto”</b> o importa un JSON.
+      No hay productos disponibles.
     </div>
   </div>
 </main>
@@ -95,14 +68,17 @@
     <form id="form" class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="modalTitle">Nuevo producto</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+
         <input type="hidden" name="id"/>
+
         <div class="mb-3">
           <label class="form-label">Nombre</label>
           <input name="name" class="form-control" placeholder="Shawarma" required>
         </div>
+
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label">Categoría</label>
@@ -112,15 +88,17 @@
               <option>Postres</option>
             </select>
           </div>
+
           <div class="col-md-6">
             <label class="form-label">Precio</label>
-            <input name="price" type="number" min="0" step="100" class="form-control" placeholder="4500" required>
+            <input name="price" type="number" min="0" class="form-control" placeholder="4500" required>
           </div>
         </div>
+
         <div class="row g-3 mt-0">
           <div class="col-md-6">
-            <label class="form-label">URL Imagen (opcional)</label>
-            <input name="img" class="form-control" placeholder="https://…/shawarma.jpg">
+            <label class="form-label">URL Imagen</label>
+            <input name="img" class="form-control" placeholder="https://…">
           </div>
           <div class="col-md-6">
             <label class="form-label">Disponibilidad</label>
@@ -130,11 +108,14 @@
             </select>
           </div>
         </div>
-        <div class="mb-0 mt-3">
+
+        <div class="mt-3">
           <label class="form-label">Descripción</label>
-          <textarea name="desc" class="form-control" rows="2" placeholder="Descripción breve"></textarea>
+          <textarea name="desc" class="form-control" rows="2"></textarea>
         </div>
+
       </div>
+
       <div class="modal-footer">
         <button class="btn btn-primary">Guardar</button>
       </div>
@@ -157,237 +138,194 @@
   </div>
 </div>
 
-<!-- Bootstrap (único include) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const msg = $("msg");
-  function showMsg(type, text){
-    msg.className = "alert alert-" + type;
-    msg.textContent = text;
-    msg.classList.remove("d-none");
-    setTimeout(()=>msg.classList.add("d-none"), 1800);
-  }
-
-  const LS_KEY = "alsahara.products";
-  const SEED = [
-    {id:1, name:"Falafel",   category:"Entradas", price:3500, img:"", available:true,  desc:"Croquetas de garbanzo"},
-    {id:2, name:"Hummus",    category:"Platos",   price:4000, img:"", available:true,  desc:"Crema de garbanzos"},
-    {id:3, name:"Baklava",   category:"Postres",  price:5000, img:"", available:false, desc:"Dulce de nueces y miel"}
-  ];
-
-  function load(){
-    try{ return JSON.parse(localStorage.getItem(LS_KEY) || "null") || SEED.slice(); }
-    catch(_){ return SEED.slice(); }
-  }
-  function save(list){ localStorage.setItem(LS_KEY, JSON.stringify(list)); }
-
-  let data = load();
-  const state = { q:"", cat:"", stock:"" };
-
-  function applyFilters(){
-    const q = state.q.toLowerCase().trim();
-    return data.filter(p=>{
-      const okQ = !q || [p.name,p.category,p.desc].some(v=>String(v||"").toLowerCase().includes(q));
-      const okC = !state.cat || p.category===state.cat;
-      const okS = !state.stock || (state.stock==="ok" ? p.available : !p.available);
-      return okQ && okC && okS;
-    });
-  }
-
-  function money(n){ return n.toLocaleString("es-CL",{style:"currency",currency:"CLP",maximumFractionDigits:0}); }
-
-  function render(){
-    const list = applyFilters();
-    const tb = $("tbody");
-    if(list.length===0){
-      tb.innerHTML = "";
-      $("empty").classList.remove("d-none");
-      return;
+  (() => {
+  
+    const API_BASE = "http://localhost:3000/api/catalogo";
+    const $ = id => document.getElementById(id);
+    const msg = $("msg");
+  
+    const modalFormEl   = document.getElementById("modalForm");
+    const modalDeleteEl = document.getElementById("modalDelete");
+    const form          = document.getElementById("form");
+    const btnNew        = document.getElementById("btn-new");
+    const delNameEl     = $("delName");
+    const btnConfirmDel = $("btn-confirm-del");
+  
+    const modalForm   = new bootstrap.Modal(modalFormEl);
+    const modalDelete = new bootstrap.Modal(modalDeleteEl);
+  
+    let productos = [];
+    let deleteId = null;
+  
+    function showMsg(type, text){
+      msg.className = "alert alert-" + type;
+      msg.textContent = text;
+      msg.classList.remove("d-none");
+      setTimeout(()=> msg.classList.add("d-none"), 2000);
     }
-    $("empty").classList.add("d-none");
-    tb.innerHTML = list.map(p=>`
-      <tr>
-        <td>
-          <div class="d-flex align-items-center gap-3">
-            <img class="thumb" src="${p.img||'https://dummyimage.com/96x96/ddd/aaa.jpg&text=img'}" alt="">
-            <div>
-              <div class="fw-semibold">${p.name}</div>
-              <div class="text-muted small">${p.desc||""}</div>
+  
+    async function loadProducts(){
+      try{
+        const res = await fetch(API_BASE);
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        productos = await res.json();
+        render();
+      }catch(err){
+        showMsg("danger","Error cargando productos");
+        productos = [];
+        render();
+      }
+    }
+  
+    function render(){
+      const tb = $("tbody");
+      if(!productos.length){
+        tb.innerHTML = "";
+        $("empty").classList.remove("d-none");
+        return;
+      }
+      $("empty").classList.add("d-none");
+  
+      tb.innerHTML = productos.map(p=>`
+        <tr>
+          <td>
+            <div class="d-flex align-items-center gap-3">
+              <img class="thumb" src="${p.img || 'https://dummyimage.com/96x96/ddd/aaa.jpg&text=img'}">
+              <div>
+                <div class="fw-semibold">${p.name}</div>
+                <div class="text-muted small">${p.desc || ""}</div>
+              </div>
             </div>
-          </div>
-        </td>
-        <td>${p.category}</td>
-        <td class="mono">${money(p.price)}</td>
-        <td><span class="chip ${p.available?'ok':'off'}">${p.available?'Disponible':'Agotado'}</span></td>
-        <td class="text-end">
-          <div class="btn-group">
+          </td>
+          <td>${p.category}</td>
+          <td class="mono">$${Number(p.price).toLocaleString()}</td>
+          <td><span class="chip ${p.available?'ok':'off'}">${p.available?'Disponible':'Agotado'}</span></td>
+          <td class="text-end">
             <button class="btn btn-sm btn-outline-primary" data-edit="${p.id}">Editar</button>
-            <button class="btn btn-sm btn-outline-warning" data-toggle="${p.id}">${p.available?'Marcar agotado':'Marcar disponible'}</button>
+            <button class="btn btn-sm btn-outline-warning" data-toggle="${p.id}">
+              ${p.available ? 'Marcar agotado' : 'Marcar disponible'}
+            </button>
             <button class="btn btn-sm btn-outline-danger" data-del="${p.id}">Eliminar</button>
-          </div>
-        </td>
-      </tr>
-    `).join("");
-  }
-
-  // ---- Lazy init modales (anti _initializeBackDrop)
-  let modalForm = null;
-  let modalDel  = null;
-  function ensureModals(){
-    if(!modalForm){
-      const el1 = $("modalForm");
-      if(el1) modalForm = new bootstrap.Modal(el1, { backdrop:true });
+          </td>
+        </tr>
+      `).join("");
+  
+      // eventos
+      tb.querySelectorAll("[data-edit]").forEach(b=>
+        b.addEventListener("click", ()=> openEdit(Number(b.dataset.edit)))
+      );
+      tb.querySelectorAll("[data-toggle]").forEach(b=>
+        b.addEventListener("click", ()=> toggleAvailable(Number(b.dataset.toggle)))
+      );
+      tb.querySelectorAll("[data-del]").forEach(b=>
+        b.addEventListener("click", ()=> askDelete(Number(b.dataset.del)))
+      );
     }
-    if(!modalDel){
-      const el2 = $("modalDelete");
-      if(el2) modalDel = new bootstrap.Modal(el2, { backdrop:true });
-    }
-  }
-
-  // Nuevo
-  $("btn-new").addEventListener("click", ()=>{
-    ensureModals();
-    const f = $("form");
-    $("modalTitle").textContent = "Nuevo producto";
-    f.reset();
-    f.id.value = "";
-    f.available.value = "true";
-    modalForm.show();
-  });
-
-  // Delegación: editar / toggle / eliminar
-  document.addEventListener("click",(e)=>{
-    const bE = e.target.closest("[data-edit]");
-    const bT = e.target.closest("[data-toggle]");
-    const bD = e.target.closest("[data-del]");
-
-    if(bE){
-      ensureModals();
-      const id = +bE.getAttribute("data-edit");
-      const p = data.find(x=>x.id===id); if(!p) return;
-      const f = $("form");
-      $("modalTitle").textContent = "Editar producto";
-      f.id.value = p.id;
-      f.name.value = p.name||"";
-      f.category.value = p.category||"Platos";
-      f.price.value = p.price||0;
-      f.img.value = p.img||"";
-      f.available.value = String(!!p.available);
-      f.desc.value = p.desc||"";
+  
+    // NUEVO
+    btnNew.addEventListener("click", ()=>{
+      form.reset();
+      form.id.value = "";
+      document.getElementById("modalTitle").textContent = "Nuevo producto";
+      modalForm.show();
+    });
+  
+    // EDITAR
+    function openEdit(id){
+      const p = productos.find(x => x.id === id);
+      if(!p) return;
+  
+      form.id.value = p.id;
+      form.name.value = p.name;
+      form.category.value = p.category;
+      form.price.value = p.price;
+      form.img.value = p.img || "";
+      form.desc.value = p.desc || "";
+      form.available.value = p.available ? "true" : "false";
+  
+      document.getElementById("modalTitle").textContent = "Editar producto";
       modalForm.show();
     }
-
-    if(bT){
-      const id = +bT.getAttribute("data-toggle");
-      const i = data.findIndex(x=>x.id===id); if(i<0) return;
-      data[i].available = !data[i].available;
-      save(data); render();
-    }
-
-    if(bD){
-      ensureModals();
-      const id = +bD.getAttribute("data-del");
-      const p = data.find(x=>x.id===id);
-      $("delName").textContent = p ? p.name : "—";
-      $("btn-confirm-del").dataset.id = id;
-      modalDel.show();
-    }
-  });
-
-  // Guardar
-  $("form").addEventListener("submit",(e)=>{
-    e.preventDefault();
-    const f = e.target;
-    const id = f.id.value ? +f.id.value : null;
-    const name = f.name.value.trim();
-    const category = f.category.value;
-    const price = Math.max(0, Number(f.price.value||0));
-    const img = f.img.value.trim();
-    const available = f.available.value === "true";
-    const desc = f.desc.value.trim();
-
-    if(!name || !category){
-      showMsg("warning","Nombre y categoría son obligatorios.");
-      return;
-    }
-
-    if(id){
-      const i = data.findIndex(x=>x.id===id);
-      if(i>=0) data[i] = {...data[i], name,category,price,img,available,desc};
-      showMsg("success","Producto actualizado.");
-    }else{
-      const newId = data.length ? Math.max(...data.map(x=>x.id))+1 : 1;
-      data.push({id:newId, name,category,price,img,available,desc});
-      showMsg("success","Producto creado.");
-    }
-    save(data); render();
-    ensureModals(); modalForm.hide();
-  });
-
-  // Confirmar eliminar
-  $("btn-confirm-del").addEventListener("click", ()=>{
-    const id = +$("btn-confirm-del").dataset.id;
-    if(!id) return;
-    data = data.filter(x=>x.id!==id);
-    save(data); render();
-    showMsg("secondary","Producto eliminado.");
-    ensureModals(); modalDel.hide();
-  });
-
-  // Filtros
-  $("search").addEventListener("input",(e)=>{ state.q = e.target.value; render(); });
-  $("filter-cat").addEventListener("change",(e)=>{ state.cat = e.target.value; render(); });
-  $("filter-stock").addEventListener("change",(e)=>{ state.stock = e.target.value; render(); });
-
-  // Export / Import
-  $("btn-export").addEventListener("click", ()=>{
-    const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "productos-alsahara.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
-
-  $("file-import").addEventListener("change",(e)=>{
-    const file = e.target.files[0]; if(!file) return;
-    const reader = new FileReader();
-    reader.onload = ()=>{
+  
+    // GUARDAR
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+  
+      const fd = new FormData(form);
+      const id = fd.get("id");
+      const body = {
+        name: fd.get("name"),
+        category: fd.get("category"),
+        price: Number(fd.get("price")),
+        img: fd.get("img"),
+        desc: fd.get("desc"),
+        available: fd.get("available") === "true"
+      };
+  
       try{
-        const arr = JSON.parse(reader.result);
-        if(!Array.isArray(arr)) throw new Error("JSON inválido");
-        const sane = arr.map((p,i)=>({
-          id: Number(p.id) || (i+1),
-          name: String(p.name||"").trim() || `Producto ${i+1}`,
-          category: ["Platos","Entradas","Postres"].includes(p.category)?p.category:"Platos",
-          price: Math.max(0, Number(p.price)||0),
-          img: String(p.img||"").trim(),
-          available: !!p.available,
-          desc: String(p.desc||"").trim()
-        }));
-        data = sane;
-        save(data);
-        render();
-        showMsg("success","Productos importados.");
-        e.target.value = "";
+        let res;
+        if (id){
+          res = await fetch(`${API_BASE}/${id}`,{
+            method:"PUT",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify(body)
+          });
+        } else {
+          res = await fetch(API_BASE,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify(body)
+          });
+        }
+  
+        if(!res.ok) throw new Error("Error guardando producto");
+        showMsg("success","Producto guardado");
+        modalForm.hide();
+        loadProducts();
+  
       }catch(err){
-        showMsg("danger","No se pudo importar: "+err.message);
+        showMsg("danger",err.message);
       }
-    };
-    reader.readAsText(file);
-  });
-
-  // Render cuando todo está cargado
-  window.addEventListener("load", render);
-})();
-</script>
-
-<!-- Modal eliminar (nombre a mostrar) -->
-<div style="display:none">
-  <span id="delName"></span>
-</div>
+    });
+  
+    // TOGGLE DISPONIBLE
+    async function toggleAvailable(id){
+      try{
+        const res = await fetch(`${API_BASE}/${id}/toggle`,{method:"PATCH"});
+        if(!res.ok) throw new Error("Error cambiando disponibilidad");
+        loadProducts();
+      }catch(err){
+        showMsg("danger",err.message);
+      }
+    }
+  
+    // ELIMINAR
+    function askDelete(id){
+      const p = productos.find(x => x.id === id);
+      delNameEl.textContent = p?.name || "—";
+      deleteId = id;
+      modalDelete.show();
+    }
+  
+    btnConfirmDel.addEventListener("click", async ()=>{
+      try{
+        const res = await fetch(`${API_BASE}/${deleteId}`,{method:"DELETE"});
+        if(!res.ok) throw new Error("Error eliminando producto");
+        showMsg("success","Producto eliminado");
+        modalDelete.hide();
+        loadProducts();
+      }catch(err){
+        showMsg("danger",err.message);
+      }
+    });
+  
+    // INIT
+    loadProducts();
+  
+  })();
+  </script>
 </body>
 </html>

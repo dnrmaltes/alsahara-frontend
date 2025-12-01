@@ -42,20 +42,23 @@
   <!-- Bootstrap JS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- LÓGICA: validaciones + bloqueo por intentos + sesión con expiración -->
+  <!-- LÓGICA: login contra API FastAPI + bloqueo por intentos + sesión con expiración -->
   <script>
     (function () {
+      // 👇 IMPORTANTE: FastAPI corre en 127.0.0.1:3000
+      const API_LOGIN = "http://127.0.0.1:3000/api/auth/login";
+
       const form = document.getElementById("form-login");
       const msg  = document.getElementById("login-msg");
 
       // ---------- Configuraciones ----------
       const MAX_ATTEMPTS = 5;              // intentos antes de bloquear
       const LOCK_MS      = 2 * 60 * 1000;  // 2 minutos de bloqueo
-      const SESSION_MIN  = 20;             // sesión expira en 20 minutos (simulado DoD)
+      const SESSION_MIN  = 20;             // sesión expira en 20 minutos
       const LS_KEYS = {
         attempts: "alsahara.login.attempts",
         lock:     "alsahara.login.lockUntil",
-        session:  "alsahara.session"       // { email, expiresAt }
+        session:  "alsahara.session",      // { email, token, expiresAt }
       };
 
       // ---------- Utils ----------
@@ -65,7 +68,6 @@
         msg.classList.remove("d-none");
       }
       function hideMsg() { msg.classList.add("d-none"); }
-
       function now() { return Date.now(); }
 
       function getAttempts() {
@@ -74,20 +76,15 @@
       function setAttempts(n) {
         localStorage.setItem(LS_KEYS.attempts, String(n));
       }
-      function resetAttempts() {
-        setAttempts(0);
-      }
+      function resetAttempts() { setAttempts(0); }
 
       function getLockUntil() {
         const v = localStorage.getItem(LS_KEYS.lock);
         return v ? parseInt(v, 10) : 0;
       }
-      function setLockUntil(ts) {
-        localStorage.setItem(LS_KEYS.lock, String(ts));
-      }
-      function clearLock() {
-        localStorage.removeItem(LS_KEYS.lock);
-      }
+      function setLockUntil(ts) { localStorage.setItem(LS_KEYS.lock, String(ts)); }
+      function clearLock() { localStorage.removeItem(LS_KEYS.lock); }
+
       function isLocked() {
         const until = getLockUntil();
         return until && now() < until;
@@ -97,14 +94,11 @@
         return Math.max(0, Math.ceil((until - now()) / 1000));
       }
 
-      function startSession(email) {
+      function startSession(email, token) {
         const expiresAt = now() + SESSION_MIN * 60 * 1000;
-        localStorage.setItem(LS_KEYS.session, JSON.stringify({ email, expiresAt }));
+        const session = { email, token: token || null, expiresAt };
+        localStorage.setItem(LS_KEYS.session, JSON.stringify(session));
       }
-
-      // (Opcional) Si alguna página quiere verificar expiración:
-      // const s = JSON.parse(localStorage.getItem(LS_KEYS.session) || "null");
-      // if (!s || Date.now() > s.expiresAt) => sesión expirada
 
       // ---------- Check inicial de bloqueo ----------
       function checkLockAndInform() {
@@ -127,8 +121,8 @@
       function validEmail(v) { return /\S+@\S+\.\S+/.test(v); }
       function validPass(v)  { return v && v.length >= 6; }
 
-      // ---------- Manejo de submit ----------
-      form.addEventListener("submit", function (e) {
+      // ---------- Manejo de submit (ASYNC contra FastAPI) ----------
+      form.addEventListener("submit", async function (e) {
         e.preventDefault();
         hideMsg();
 
@@ -138,42 +132,63 @@
         const email = form.email.value.trim();
         const pass  = form.password.value.trim();
 
-        if (!validEmail(email)) { show("warning", "Email inválido."); return; }
-        if (!validPass(pass))   { show("warning", "La contraseña debe tener al menos 6 caracteres."); return; }
+        if (!validEmail(email)) {
+          show("warning", "Email inválido.");
+          return;
+        }
+        if (!validPass(pass)) {
+          show("warning", "La contraseña debe tener al menos 6 caracteres.");
+          return;
+        }
 
-        // Simulación de autenticación:
-        // Para el demo, consideramos que cualquier email válido + pass >=6 es correcto.
-        // Puedes poner una pauta (ej: sólo email que termine en @demo.cl pasa).
-        const authOK = true;
+        try {
+          const res = await fetch(API_LOGIN, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: email,
+              password: pass  
+            })
+          });
 
-        if (authOK) {
+          let data = {};
+          try { data = await res.json(); } catch (_) {}
+
+          if (!res.ok) {
+            // fallo de autenticación → sumar intento y bloquear si corresponde
+            const current = getAttempts() + 1;
+            setAttempts(current);
+
+            const mensaje = data.message || "Credenciales inválidas.";
+            if (current >= MAX_ATTEMPTS) {
+              setLockUntil(now() + LOCK_MS);
+              show("danger", mensaje + " Has superado los " + MAX_ATTEMPTS + " intentos. Cuenta bloqueada por 2 minutos.");
+            } else {
+              const restantes = MAX_ATTEMPTS - current;
+              show("warning", mensaje + " Te quedan " + restantes + " intento(s) antes del bloqueo.");
+            }
+            return;
+          }
+
           // Éxito → limpiar contadores y bloqueo
           resetAttempts();
           clearLock();
 
-          // Crear sesión con expiración
-          startSession(email);
+          // Guardar sesión (email + token si lo devuelve la API)
+          startSession(email, data.token);
 
           show("success", "Inicio de sesión exitoso. Redirigiendo…");
           setTimeout(function () {
-            window.location.href = "index.html";
+            window.location.href = "catalogo.html"; // o index.html si prefieres
           }, 900);
-        } else {
-          // Fallo → aumentar intentos y bloquear si corresponde
-          const current = getAttempts() + 1;
-          setAttempts(current);
 
-          if (current >= MAX_ATTEMPTS) {
-            setLockUntil(now() + LOCK_MS);
-            show("danger", "Has superado los " + MAX_ATTEMPTS + " intentos. Cuenta bloqueada por 2 minutos.");
-          } else {
-            const restantes = MAX_ATTEMPTS - current;
-            show("warning", "Credenciales inválidas. Te quedan " + restantes + " intento(s) antes del bloqueo.");
-          }
+        } catch (err) {
+          console.error(err);
+          show("danger", "Error al conectar con el servidor. Inténtalo nuevamente.");
         }
       });
 
-      // (Opcional) Actualiza el contador de segundos en pantalla si está bloqueado
+      // ---------- Timer visual si está bloqueado ----------
       if (isLocked()) {
         const timer = setInterval(() => {
           if (!isLocked()) {

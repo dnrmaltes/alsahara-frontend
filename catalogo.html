@@ -50,135 +50,179 @@
   <!-- LÓGICA: listado, búsqueda, filtros, paginación y persistencia -->
   <script>
     (function () {
-      // -------- Datos mock (36 productos) --------
-      const PRODUCTS = Array.from({length:36}).map((_,i)=>({
-        id:i+1,
-        name:["Falafel","Hummus","Shawarma","Baklava","Taboulé","Kebab"][i%6] + " " + (i+1),
-        price: 3500 + (i%6)*500,
-        category: ["Entradas","Platos","Postres"][i%3],
-        img: "https://via.placeholder.com/400x260?text=Al+Sahara"
-      }));
-
-      // -------- Estado + persistencia en querystring --------
+      const API_URL = "http://localhost:3000/api/catalogo/search";
+    
       const state = {
         page: 1,
         perPage: 12,
         q: "",
         category: ""
       };
-
+    
+      // ---- Leer parámetros desde la URL (para persistencia de filtros) ----
       function readQuery() {
         const p = new URLSearchParams(location.search);
-        state.q = p.get("q") || "";
+        state.q        = p.get("q")   || "";
         state.category = p.get("cat") || "";
-        state.page = Math.max(1, parseInt(p.get("page") || "1", 10));
+        state.page     = Math.max(1, parseInt(p.get("page") || "1", 10));
       }
+    
       function writeQuery() {
         const p = new URLSearchParams();
-        if (state.q) p.set("q", state.q);
+        if (state.q)        p.set("q", state.q);
         if (state.category) p.set("cat", state.category);
-        if (state.page>1) p.set("page", String(state.page));
-        const qs = p.toString();
+        if (state.page > 1) p.set("page", String(state.page));
+        const qs  = p.toString();
         const url = qs ? `?${qs}` : location.pathname;
         history.replaceState(null, "", url);
       }
-
-      // -------- Utilidades --------
-      function filterProducts(arr, q, cat){
-        q = (q||"").toLowerCase().trim();
-        return arr.filter(p=>{
-          const okText = !q || p.name.toLowerCase().includes(q);
-          const okCat  = !cat || p.category===cat;
-          return okText && okCat;
-        });
-      }
-      function paginate(arr, page, perPage){
-        const start = (page-1)*perPage;
-        return arr.slice(start, start+perPage);
-      }
-
-      // -------- Render --------
-      function renderGrid(items){
+    
+      // ---- Render helpers ----
+      function renderGrid(items) {
         const grid = document.getElementById("grid");
-        grid.innerHTML = items.map(p => `
-          <div class="col">
-            <div class="card shadow-sm h-100">
-              <img class="card-img-top" src="${p.img}" alt="${p.name}">
-              <div class="card-body">
-                <h6 class="card-title mb-1">${p.name}</h6>
-                <div class="d-flex justify-content-between align-items-center">
-                  <span class="badge-soft">${p.category}</span>
-                  <strong>$${p.price.toLocaleString()}</strong>
+        if (!items || !items.length) {
+          grid.innerHTML = "";
+          document.getElementById("emptyState").classList.remove("d-none");
+          return;
+        }
+        document.getElementById("emptyState").classList.add("d-none");
+    
+        grid.innerHTML = items.map(p => {
+          // intentamos adaptar nombres del backend: nombre/name, precio/price, categoria/category, imagen/img
+          const name  = p.nombre  || p.name  || "Producto";
+          const price = p.precio  || p.price || 0;
+          const cat   = p.categoria || p.category || "";
+          const img   = p.imagen || p.img || "https://via.placeholder.com/400x260?text=Al+Sahara";
+          return `
+            <div class="col">
+              <div class="card shadow-sm h-100">
+                <img class="card-img-top" src="${img}" alt="${name}">
+                <div class="card-body">
+                  <h6 class="card-title mb-1">${name}</h6>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="badge-soft">${cat}</span>
+                    <strong>$${Number(price).toLocaleString("es-CL")}</strong>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        `).join("");
+          `;
+        }).join("");
       }
-
-      function renderPagination(total){
+    
+      function renderPagination(meta) {
         const wrap = document.getElementById("pagination");
-        const pages = Math.ceil(total/state.perPage) || 1;
-        // clamp page
-        if(state.page>pages){ state.page = pages; }
-
+        const total    = meta?.total || 0;
+        const perPage  = meta?.perPage || state.perPage;
+        const current  = meta?.page || state.page;
+        const pages    = Math.max(1, Math.ceil(total / perPage) || 1);
+    
+        state.page = current > pages ? pages : current;
+    
         let html = `<nav aria-label="Paginación"><ul class="pagination mb-0">`;
-        for(let i=1;i<=pages;i++){
-          html += `<li class="page-item ${i===state.page?'active':''}">
-            <a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+        for (let i = 1; i <= pages; i++) {
+          html += `
+            <li class="page-item ${i === state.page ? "active" : ""}">
+              <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>`;
         }
         html += `</ul></nav>`;
         wrap.innerHTML = html;
-
-        wrap.querySelectorAll("a[data-page]").forEach(a=>{
-          a.addEventListener("click",(e)=>{
+    
+        wrap.querySelectorAll("a[data-page]").forEach(a => {
+          a.addEventListener("click", (e) => {
             e.preventDefault();
             state.page = Number(a.dataset.page);
             writeQuery();
-            apply(); // persistencia de filtros al paginar
+            loadProducts();
           });
         });
       }
-
-      function apply(){
-        const filtered = filterProducts(PRODUCTS, state.q, state.category);
-        const items = paginate(filtered, state.page, state.perPage);
-        document.getElementById("emptyState").classList.toggle("d-none", filtered.length>0);
-        renderGrid(items);
-        renderPagination(filtered.length);
+    
+      // ---- Llamada a la API ----
+      async function loadProducts() {
+        const grid  = document.getElementById("grid");
+        const empty = document.getElementById("emptyState");
+        const pagination = document.getElementById("pagination");
+    
+        grid.innerHTML = `<div class="col"><div class="text-center py-5 text-muted">Cargando catálogo…</div></div>`;
+        empty.classList.add("d-none");
+        pagination.innerHTML = "";
+    
+        const params = new URLSearchParams({
+          q: state.q,
+          categoria: state.category || "",   // ← el backend probablemente usa "categoria"
+          page: String(state.page),
+          perPage: String(state.perPage)
+        });
+    
+        try {
+          const res  = await fetch(`${API_URL}?${params.toString()}`);
+          const data = await res.json();
+    
+          // soportamos dos formatos:
+          // 1) { items:[...], total, page, perPage }
+          // 2) [ ... ] a secas
+          let items = [];
+          let meta  = { total: 0, page: state.page, perPage: state.perPage };
+    
+          if (Array.isArray(data)) {
+            items = data;
+            meta.total = data.length;
+          } else {
+            items = data.items || [];
+            meta.total   = data.total   ?? items.length;
+            meta.page    = data.page    ?? state.page;
+            meta.perPage = data.perPage ?? state.perPage;
+          }
+    
+          renderGrid(items);
+          renderPagination(meta);
+    
+          if (!items.length) {
+            empty.classList.remove("d-none");
+          }
+    
+        } catch (err) {
+          console.error(err);
+          grid.innerHTML = "";
+          empty.classList.remove("d-none");
+          empty.textContent = "Error al cargar el catálogo. Verifica que la API esté levantada.";
+        }
       }
-
-      // -------- Wiring --------
-      function wire(){
+    
+      // ---- Wiring de búsqueda y filtros ----
+      function wire() {
         const input = document.getElementById("search");
         input.value = state.q;
-        input.addEventListener("input", (e)=>{
+        input.addEventListener("input", (e) => {
           state.q = e.target.value;
           state.page = 1;
           writeQuery();
-          apply();
+          loadProducts();
         });
-
-        document.querySelectorAll("[data-filter]").forEach(btn=>{
-          if(btn.dataset.filter === state.category){ btn.classList.add("btn-primary"); }
-          btn.addEventListener("click", ()=>{
-            // reset estilos
-            document.querySelectorAll("[data-filter]").forEach(b=>b.classList.remove("btn-primary"));
+    
+        document.querySelectorAll("[data-filter]").forEach(btn => {
+          if (btn.dataset.filter === state.category) {
             btn.classList.add("btn-primary");
-
+          }
+          btn.addEventListener("click", () => {
+            document.querySelectorAll("[data-filter]").forEach(b => b.classList.remove("btn-primary"));
+            btn.classList.add("btn-primary");
             state.category = btn.dataset.filter;
             state.page = 1;
             writeQuery();
-            apply();
+            loadProducts();
           });
         });
       }
-
-      // -------- Init --------
+    
+      // ---- Init ----
       readQuery();
       wire();
-      apply();
+      loadProducts();
+    
     })();
-  </script>
+    </script>
 </body>
 </html>

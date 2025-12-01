@@ -28,7 +28,7 @@
       <button class="btn btn-primary w-100">Solicitar enlace de recuperación</button>
     </form>
 
-    <!-- FORM NUEVA CONTRASEÑA (aparece después del token) -->
+    <!-- FORM NUEVA CONTRASEÑA -->
     <form id="form-reset" class="card p-4 shadow-sm bg-white d-none" novalidate>
       <h2 class="h6 mb-3">Restablecer contraseña</h2>
       <div class="mb-3">
@@ -38,7 +38,6 @@
       </div>
       <div class="mb-3">
         <label class="form-label" for="newpass">Nueva contraseña</label>
-        <!-- Reglas en HTML para reforzar: 8+ con 1 mayúscula y 1 dígito -->
         <input
           name="newpass"
           id="newpass"
@@ -57,97 +56,126 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Lógica funcional con validación estricta -->
   <script>
-    (function () {
-      const formReq   = document.getElementById("form-request");
-      const formReset = document.getElementById("form-reset");
-      const msg       = document.getElementById("rec-msg");
+  (function () {
+    const API_BASE    = "http://localhost:3000/api/auth";
+    const API_RECOVER = API_BASE + "/recover";
+    const API_RESET   = API_BASE + "/reset";
 
-      // Token simulado (se genera y expira)
-      const TOKEN_TTL_MS = 2 * 60 * 1000; // 2 minutos
+    const formReq   = document.getElementById("form-request");
+    const formReset = document.getElementById("form-reset");
+    const msg       = document.getElementById("rec-msg");
 
-      function show(type, text) {
-        msg.className = "alert alert-" + type;
-        msg.textContent = text;
-        msg.classList.remove("d-none");
+    function show(type, text) {
+      msg.className = "alert alert-" + type;
+      msg.textContent = text;
+      msg.classList.remove("d-none");
+    }
+
+    function validEmail(v){ return /\S+@\S+\.\S+/.test(v); }
+    function validStrongPass(v){
+      return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(v);
+    }
+
+    // 1) Solicitar token
+    formReq.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = formReq.email.value.trim();
+
+      if (!validEmail(email)) {
+        show("warning", "Email inválido.");
+        return;
       }
 
-      function validEmail(v){ return /\S+@\S+\.\S+/.test(v); }
-      function validStrongPass(v){
-        // 8+ con 1 mayúscula y 1 dígito
-        return /^(?=.*[A-Z])(?=.*\d).{8,}$/.test(v);
-      }
+      try {
+        const res = await fetch(API_RECOVER, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
 
-      // Guardar token en localStorage
-      function saveToken(token, expiresAt){
-        localStorage.setItem("alsahara.token", token);
-        localStorage.setItem("alsahara.token.exp", String(expiresAt));
-      }
-      function readToken(){ return localStorage.getItem("alsahara.token"); }
-      function readTokenExp(){ return parseInt(localStorage.getItem("alsahara.token.exp") || "0", 10); }
-      function clearToken(){
-        localStorage.removeItem("alsahara.token");
-        localStorage.removeItem("alsahara.token.exp");
-      }
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
 
-      // Escenario 1: solicitud válida de recuperación
-      formReq.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const email = formReq.email.value.trim();
-        if (!validEmail(email)) {
-          show("warning", "Email inválido.");
+        console.log("DATA RECIBIDA RECOVER:", data);
+
+        if (!res.ok) {
+          show("danger", data.detail || data.message || "No se pudo solicitar la recuperación.");
           return;
         }
-        const token = Math.floor(100000 + Math.random() * 900000).toString(); // 6 dígitos
-        const exp   = Date.now() + TOKEN_TTL_MS;
-        saveToken(token, exp);
-        show("success", "Se envió un enlace con el token (simulado: " + token + ").");
-        // Mostrar formulario de reseteo
+
+        const token = data.token;        // 👈 SOLO el token del backend
+        console.log("TOKEN BACKEND:", token);
+
+        localStorage.setItem("alsahara.recover.token", token);
+
+        show("success", "Se envió un código de recuperación (simulado). Token: " + token);
+
         formReq.classList.add("d-none");
         formReset.classList.remove("d-none");
-      });
 
-      // Escenario 2 y 3: validación de token + reseteo exitoso
-      formReset.addEventListener("submit", (e) => {
-        e.preventDefault();
+      } catch (err) {
+        console.error("RECOVER ERROR", err);
+        show("danger", "Error de conexión con el servidor.");
+      }
+    });
 
-        const token   = formReset.token.value.trim();
-        const newpass = formReset.newpass.value.trim();
+    // 2) Resetear contraseña
+    formReset.addEventListener("submit", async (e) => {
+      e.preventDefault();
 
-        const saved = readToken();
-        const exp   = readTokenExp();
-        const now   = Date.now();
+      const token      = formReset.token.value.trim();
+      const newPass    = formReset.newpass.value.trim();
+      const savedToken = localStorage.getItem("alsahara.recover.token");
 
-        if (!saved) {
-          show("info", "Aún no has solicitado un token. Primero solicita el enlace de recuperación.");
-          formReset.classList.add("d-none");
-          formReq.classList.remove("d-none");
+      console.log("TOKEN INPUT:", token);
+      console.log("TOKEN GUARDADO:", savedToken);
+
+      if (!savedToken) {
+        show("danger", "Debes solicitar un token primero.");
+        return;
+      }
+
+      if (token !== savedToken) {
+        show("warning", "Token incorrecto.");
+        return;
+      }
+
+      if (!validStrongPass(newPass)) {
+        show("warning", "La contraseña debe tener 8+ caracteres, 1 mayúscula y 1 dígito.");
+        return;
+      }
+
+      try {
+        const res = await fetch(API_RESET, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, newPassword: newPass })
+        });
+
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+
+        console.log("RESET RESPUESTA:", data);
+
+        if (!res.ok) {
+          show("danger", data.detail || data.message || "Error al resetear contraseña.");
           return;
         }
-        if (now > exp) {
-          show("danger", "Token caducado. Solicita uno nuevo.");
-          formReset.classList.add("d-none");
-          formReq.classList.remove("d-none");
-          clearToken();
-          return;
-        }
-        if (token !== saved) {
-          show("warning", "Token incorrecto. Verifica el código mostrado.");
-          return;
-        }
-        // VALIDACIÓN ESTRICTA DE CONTRASEÑA 
-        if (!validStrongPass(newpass)) {
-          show("warning", "La nueva contraseña no cumple la política: 8+ caracteres, 1 mayúscula y 1 dígito.");
-          return;
-        }
 
-        // Reseteo exitoso
-        clearToken();
-        show("success", "Contraseña restablecida con éxito. Redirigiendo al login…");
-        setTimeout(() => { window.location.href = "login.html"; }, 1000);
-      });
-    })();
+        localStorage.removeItem("alsahara.recover.token");
+
+        show("success", "Contraseña actualizada. Redirigiendo…");
+        setTimeout(() => {
+          window.location.href = "login.html";
+        }, 1200);
+
+      } catch (err) {
+        console.error("RESET ERROR", err);
+        show("danger", "Error de conexión con el servidor.");
+      }
+    });
+  })();
   </script>
 </body>
 </html>

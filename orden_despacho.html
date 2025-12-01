@@ -132,6 +132,10 @@
     (function(){
       const $ = (id)=>document.getElementById(id);
       const msg = $("msg");
+
+      // ✅ endpoint FastAPI para clientes
+      const API_CLIENTES = "http://localhost:3000/api/clientes";
+
       function showMsg(type, text){
         msg.className = "alert alert-" + type;
         msg.textContent = text;
@@ -193,8 +197,22 @@
         renderSteps(shipment.status);
       }
 
+      // ✅ función para registrar/actualizar cliente en FastAPI (no rompe si falla)
+      async function syncClienteConAPI(email, nombre){
+        if(!email) return; // si no pone correo, no intentamos nada
+        try {
+          await fetch(API_CLIENTES, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, nombre })
+          });
+        } catch(err){
+          console.warn("No se pudo sincronizar cliente con API:", err);
+        }
+      }
+
       // Generar orden
-      $("ship-form").addEventListener("submit", (e)=>{
+      $("ship-form").addEventListener("submit", async (e)=>{
         e.preventDefault();
         hideMsg();
         const f = e.target;
@@ -228,6 +246,9 @@
         $("state-card").classList.remove("d-none");
         renderSteps(shipment.status);
         showMsg("success","Orden de despacho creada. Tracking: " + shipment.tracking);
+
+        // ✅ disparar sincronización con FastAPI en segundo plano
+        syncClienteConAPI(data.email, data.receiver);
       });
 
       // Avanzar estado

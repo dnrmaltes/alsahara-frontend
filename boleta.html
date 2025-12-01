@@ -104,110 +104,151 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     (function(){
-      // -------- Helpers --------
       const $ = (id)=>document.getElementById(id);
+      function money(n){ return "$" + Number(n||0).toLocaleString(); }
       function show(el){ el.classList.remove("d-none"); }
       function hide(el){ el.classList.add("d-none"); }
-      function money(n){ return "$" + Number(n||0).toLocaleString(); }
-
-      // Lee datos colocados por pago.html
+    
+      // ================================
+      // 💾 Datos guardados en localStorage
+      // ================================
       const orderId   = localStorage.getItem("alsahara.orderId");
       const paymentId = localStorage.getItem("alsahara.paymentId");
-      const totalStr  = localStorage.getItem("alsahara.paymentTotal"); // número como string
-      // Carro opcional: si existe, usamos items reales; si no, mostramos ejemplo
-      const cartJson  = localStorage.getItem("alsahara.cart"); // [{"name":"Falafel","qty":2,"price":2990}, ...]
+      const totalStr  = localStorage.getItem("alsahara.paymentTotal");
+      const cartJson  = localStorage.getItem("alsahara.cart");
       const session   = JSON.parse(localStorage.getItem("alsahara.session") || "null");
       const customerEmail = session?.email || "";
-
+    
+      // ================================
+      // Si faltan datos → no hay boleta
+      // ================================
       if(!orderId || !paymentId || !totalStr){
-        // Escenario 2: faltan datos (llegó directo sin pagar)
         show($("missing"));
         hide($("receipt"));
         return;
       }
-
-      // Escenario 1: boleta disponible
-      // Render cabecera
+    
+      // ================================
+      // 🧾 Render cabecera boleta
+      // ================================
       $("r-date").textContent  = new Date().toLocaleString();
       $("r-order").textContent = orderId;
       $("r-pay").textContent   = paymentId;
       $("r-email").textContent = customerEmail ? ("Email: " + customerEmail) : "";
-
-      // Render ítems
+    
+      // ================================
+      // 🛒 Items del carrito
+      // ================================
       let items = [];
-      if(cartJson){
-        try { items = JSON.parse(cartJson) || []; } catch(e){ items = []; }
-      }
-      // Si no hay carro, crear ítems demostrativos en base al total
+      if(cartJson){ try{ items = JSON.parse(cartJson) || []; } catch(_){ items = []; } }
+    
       let total = Number(totalStr) || 0;
+    
+      // Si no hay carro → boleta simple
       if(items.length === 0){
-        // Boleta simple con 1 ítem "Consumo"
-        const unit = Math.max(1000, total);
-        items = [{ name: "Consumo Al Sahara", qty: 1, price: unit }];
+        items = [{ name:"Consumo Al Sahara", qty:1, price:total }];
       }
-
-      // Calcular totales
-      const tbody = $("r-items");
+    
+      // ================================
+      // 💰 Totales
+      // ================================
       let subtotal = 0;
-      tbody.innerHTML = items.map(it=>{
-        const qty = Number(it.qty || 1);
-        const price = Number(it.price || 0);
+      $("r-items").innerHTML = items.map(it=>{
+        const qty  = Number(it.qty||1);
+        const price= Number(it.price||0);
         const line = qty * price;
-        subtotal += line;
+        subtotal  += line;
         return `
           <tr>
             <td>${it.name}</td>
             <td class="text-center">${qty}</td>
             <td class="text-end mono">${money(price)}</td>
             <td class="text-end mono">${money(line)}</td>
-          </tr>
-        `;
+          </tr>`;
       }).join("");
-
-      // Si el subtotal difiere mucho del total guardado, ajusta total a subtotal (front-only)
-      if(Math.abs(subtotal - total) > 1){
+    
+      if(Math.abs(subtotal-total) > 1){
         total = subtotal;
       }
-      const tax = Math.round(total * 0.19);
-      const base = total - tax;
-
+    
+      const iva  = Math.round(total * 0.19);
+      const base = total - iva;
+    
       $("r-subtotal").textContent = money(base);
-      $("r-tax").textContent      = money(tax);
+      $("r-tax").textContent      = money(iva);
       $("r-total").textContent    = money(total);
-
+    
       show($("receipt"));
-
-      // -------- Acciones --------
-      $("btn-print").addEventListener("click", ()=> {
-        window.print(); // Abre diálogo para imprimir/guardar en PDF
-      });
-
-      $("btn-email").addEventListener("click", ()=> {
+    
+      // ================================
+      // 🔥 FASTAPI: guardar boleta real
+      // ================================
+      const API_BOLETAS = "http://localhost:3000/api/boletas";
+      const API_CLIENTES= "http://localhost:3000/api/clientes";
+    
+      async function enviarBoletaAPI(){
+        try{
+          await fetch(API_BOLETAS,{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({
+              id: orderId,
+              ordenId: orderId,
+              pagoId: paymentId,
+              total: total,
+              fecha: new Date().toISOString()
+            })
+          });
+        }catch(e){
+          console.warn("No se pudo guardar boleta en API:",e);
+        }
+      }
+    
+      async function syncCliente(){
+        if(!customerEmail) return;
+        try{
+          await fetch(API_CLIENTES,{
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({
+              email: customerEmail,
+              nombre:"Cliente Al Sahara"
+            })
+          });
+        }catch(e){
+          console.warn("No se pudo guardar cliente:",e);
+        }
+      }
+    
+      // Guardar EN SEGUNDO PLANO (sin bloquear UI)
+      enviarBoletaAPI();
+      syncCliente();
+    
+      // ================================
+      // 🖨 Imprimir
+      // ================================
+      $("btn-print").addEventListener("click", ()=> window.print());
+    
+      // ================================
+      // 📩 Enviar email (simulado)
+      // ================================
+      $("btn-email").addEventListener("click", ()=>{
         const msg = $("msg");
-        msg.classList.remove("alert-success","alert-warning","alert-info","alert-danger","d-none");
-
+        msg.classList.remove("d-none","alert-danger","alert-warning");
         let email = customerEmail;
         if(!email){
-          // solicitar email si no hay sesión
-          email = prompt("Ingresa tu correo para enviar la boleta:");
+          email = prompt("Ingresa tu email:");
           if(!email || !/\S+@\S+\.\S+/.test(email)){
-            msg.classList.add("alert-warning");
-            msg.textContent = "Correo inválido. No se envió la boleta.";
+            msg.className="alert alert-warning";
+            msg.textContent="Correo inválido.";
             return;
           }
         }
-        // Simulación de envío
-        setTimeout(()=>{
-          msg.classList.add("alert-success");
-          msg.textContent = "Boleta enviada a " + email + " (simulado).";
-        }, 400);
+        msg.className="alert alert-success";
+        msg.textContent="Boleta enviada a " + email + " (simulado)";
       });
-
-      // (Opcional) limpiar estado de pago al imprimir/enviar — lo dejamos para que el alumno lo muestre al profe
-      // localStorage.removeItem("alsahara.paymentId");
-      // localStorage.removeItem("alsahara.orderId");
-      // localStorage.removeItem("alsahara.paymentTotal");
+    
     })();
-  </script>
+    </script>
 </body>
 </html>

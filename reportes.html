@@ -20,6 +20,7 @@
     <div class="d-flex gap-3">
       <a class="nav-link text-white-50" href="catalogo.html">Catálogo</a>
       <a class="nav-link text-white-50" href="admin_productos.html">Admin</a>
+      <a class="nav-link text-white" href="reportes.html">Reportes</a>
     </div>
   </div>
 </nav>
@@ -51,7 +52,9 @@
           <button id="btn-clear" class="btn btn-outline-secondary">Limpiar</button>
         </div>
       </div>
-      <div class="form-text mt-2">Si no aplicas filtros, se muestran los **totales generales** (US-14).</div>
+      <div class="form-text mt-2">
+        Si no aplicas filtros, se muestran los totales generales de todas las boletas almacenadas en la API.
+      </div>
     </div>
   </div>
 
@@ -68,7 +71,7 @@
     <div class="col-sm-6 col-lg-3">
       <div class="kpi card shadow-sm">
         <div class="card-body">
-          <div class="text-muted small">N° pedidos</div>
+          <div class="text-muted small">N° boletas</div>
           <div id="k-orders" class="h4 mono m-0">0</div>
         </div>
       </div>
@@ -84,21 +87,21 @@
     <div class="col-sm-6 col-lg-3">
       <div class="kpi card shadow-sm">
         <div class="card-body">
-          <div class="text-muted small">Última venta</div>
+          <div class="text-muted small">Última boleta</div>
           <div id="k-last" class="h6 mono m-0">—</div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Totales por categoría -->
+  <!-- Totales por categoría (todo en “General” porque la API no trae categoría) -->
   <div class="card shadow-sm mb-3">
     <div class="card-body">
       <h2 class="h6 mb-3">Totales por categoría</h2>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead class="table-light">
-          <tr><th>Categoría</th><th class="text-end">Ventas</th><th class="text-end">Pedidos</th></tr>
+          <tr><th>Categoría</th><th class="text-end">Ventas</th><th class="text-end">Boletas</th></tr>
           </thead>
           <tbody id="tbody-cat"></tbody>
         </table>
@@ -106,25 +109,27 @@
     </div>
   </div>
 
-  <!-- Tabla de pedidos -->
+  <!-- Tabla de boletas -->
   <div class="card shadow-sm">
     <div class="card-body">
-      <h2 class="h6 mb-3">Pedidos</h2>
+      <h2 class="h6 mb-3">Detalle de boletas</h2>
       <div class="table-responsive">
         <table class="table align-middle">
           <thead class="table-light">
           <tr>
             <th>Fecha</th>
+            <th>Boleta ID</th>
             <th>Orden</th>
-            <th>Cliente</th>
-            <th>Categorías</th>
             <th class="text-end">Total</th>
           </tr>
           </thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
-      <div id="empty" class="text-center text-muted py-4 d-none">No hay pedidos en el rango seleccionado.</div>
+      <div id="empty" class="text-center text-muted py-4 d-none">
+        No hay boletas en el rango seleccionado ni en la API.
+      </div>
+      <div id="msg" class="alert alert-danger mt-3 d-none"></div>
     </div>
   </div>
 </main>
@@ -133,122 +138,138 @@
 <script>
 (function(){
   const $ = (id)=>document.getElementById(id);
-  const LS_KEY = "alsahara.sales";
+  // 👇 Ruta REAL de tu backend
+  const API = "http://localhost:3000/api/reportes/ventas";
 
-  // ---- Utilidades
-  const money = n => "$" + Number(n||0).toLocaleString();
-  const toISO = d => new Date(d).toISOString();
+  const money   = n => "$" + Number(n||0).toLocaleString();
   const fmtDate = d => new Date(d).toLocaleString();
 
-  // ---- Seed si no hay ventas
-  function seedIfEmpty(){
-    const raw = localStorage.getItem(LS_KEY);
-    if(raw) return;
-    const cat = ["Entradas","Platos","Postres"];
-    const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
-    const today = new Date();
-    const items = [];
-    for(let i=0;i<24;i++){
-      const d = new Date(today); d.setDate(today.getDate()-rnd(0,25)); d.setHours(rnd(9,21), rnd(0,59), 0, 0);
-      const total = 3000*rnd(2,6) + 500*rnd(0,4);
-      const cs = Array.from(new Set(Array.from({length:rnd(1,3)}, _=> cat[rnd(0,2)]))).sort();
-      items.push({
-        id: "ORD-"+String(100000+i),
-        ts: d.toISOString(),
-        customer: ["Ana","Pedro","Sofía","Diego","Camila","Luis"][rnd(0,5)]+" "+["L.","G.","R.","M."][rnd(0,3)],
-        cats: cs,
-        total
-      });
-    }
-    localStorage.setItem(LS_KEY, JSON.stringify(items));
+  // Boletas del backend
+  let boletasAPI = [];
+  // Boletas simuladas en front (para mostrar algo aunque el store.boletas esté vacío)
+  let boletasSimuladas = [];
+
+  function getBoletasCombinadas(){
+    return [...boletasAPI, ...boletasSimuladas];
   }
 
-  function load(){
-    try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
-    catch(_){ return []; }
+  function showError(text){
+    const msg = $("msg");
+    msg.textContent = text;
+    msg.classList.remove("d-none");
   }
-  function save(arr){
-    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  function hideError(){
+    $("msg").classList.add("d-none");
   }
 
-  // ---- Filtros por fecha (US-12)
+  // ---- Filtros por fecha
   function applyFilters(list){
-    const f = $("from").value ? new Date($("from").value) : null;
-    const t = $("to").value ? new Date($("to").value+"T23:59:59") : null;
-    return list.filter(o=>{
-      const d = new Date(o.ts);
-      if(f && d < f) return false;
-      if(t && d > t) return false;
+    const fromValue = $("from").value;
+    const toValue   = $("to").value;
+
+    const f = fromValue ? new Date(fromValue) : null;
+    const t = toValue   ? new Date(toValue + "T23:59:59") : null;
+
+    return list.filter(b => {
+      const d = new Date(b.fecha);
+      if (f && d < f) return false;
+      if (t && d > t) return false;
       return true;
     });
   }
 
-  function groupByCategory(list){
-    const map = {};
-    for(const o of list){
-      const set = o.cats && o.cats.length ? o.cats : ["Sin categoría"];
-      for(const c of set){
-        if(!map[c]) map[c] = { total:0, orders:0 };
-        map[c].total += o.total;
-        map[c].orders += 1;
-      }
-    }
-    return map;
-  }
-
   function render(){
-    const all = load();
+    hideError();
+
+    const all = getBoletasCombinadas();
     const filtered = applyFilters(all);
 
     // KPIs
-    const total = filtered.reduce((s,o)=>s+o.total,0);
-    const n = filtered.length;
-    const avg = n ? total/n : 0;
-    const last = filtered.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts))[0];
+    const total = filtered.reduce((s,b)=> s + (b.total || 0), 0);
+    const n     = filtered.length;
+    const avg   = n ? total / n : 0;
+    const last  = filtered.slice().sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))[0];
 
-    $("k-total").textContent = money(total);
+    $("k-total").textContent  = money(total);
     $("k-orders").textContent = String(n);
-    $("k-avg").textContent = money(avg);
-    $("k-last").textContent = last ? fmtDate(last.ts) : "—";
+    $("k-avg").textContent    = money(avg);
+    $("k-last").textContent   = last ? fmtDate(last.fecha) : "—";
 
-    // Categorías
-    const gc = groupByCategory(filtered);
-    const rowsCat = Object.keys(gc).sort().map(c=>`
-      <tr>
-        <td>${c}</td>
-        <td class="text-end mono">${money(gc[c].total)}</td>
-        <td class="text-end mono">${gc[c].orders}</td>
-      </tr>
-    `).join("");
-    $("tbody-cat").innerHTML = rowsCat || `<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>`;
-
-    // Tabla pedidos
-    const rows = filtered
-      .sort((a,b)=>new Date(b.ts) - new Date(a.ts))
-      .map(o=>`
+    // “Categorías”: todo metido en una categoría general
+    const tbodyCat = $("tbody-cat");
+    if (filtered.length === 0) {
+      tbodyCat.innerHTML = `<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>`;
+    } else {
+      tbodyCat.innerHTML = `
         <tr>
-          <td class="mono">${fmtDate(o.ts)}</td>
-          <td class="mono">${o.id}</td>
-          <td>${o.customer}</td>
-          <td>${(o.cats||[]).join(", ")||"—"}</td>
-          <td class="text-end mono">${money(o.total)}</td>
+          <td>General</td>
+          <td class="text-end mono">${money(total)}</td>
+          <td class="text-end mono">${n}</td>
         </tr>
-      `).join("");
-    $("tbody").innerHTML = rows;
-    $("empty").classList.toggle("d-none", filtered.length>0);
+      `;
+    }
+
+    // Tabla detalle boletas
+    const tbody = $("tbody");
+    if (filtered.length === 0) {
+      tbody.innerHTML = "";
+      $("empty").classList.remove("d-none");
+    } else {
+      $("empty").classList.add("d-none");
+      tbody.innerHTML = filtered
+        .slice()
+        .sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))
+        .map(b => `
+          <tr>
+            <td class="mono">${fmtDate(b.fecha)}</td>
+            <td class="mono">${b.id}</td>
+            <td class="mono">${b.ordenId || "—"}</td>
+            <td class="text-end mono">${money(b.total)}</td>
+          </tr>
+        `).join("");
+    }
   }
 
-  // ---- Export CSV
+  // ---- Cargar datos desde la API
+  async function loadFromAPI(){
+    hideError();
+    try {
+      const res = await fetch(API);
+      if (!res.ok) {
+        showError("Error al obtener reportes desde la API (HTTP " + res.status + ").");
+        boletasAPI = [];
+        render();
+        return;
+      }
+      const data = await res.json();
+      if (!data.ok) {
+        showError("La API respondió con error: " + (data.error || "desconocido"));
+        boletasAPI = [];
+        render();
+        return;
+      }
+      // data.detalle = store.boletas
+      boletasAPI = Array.isArray(data.detalle) ? data.detalle : [];
+      render();
+    } catch (err) {
+      console.error(err);
+      showError("No se pudo conectar con /api/reportes/ventas. ¿El servidor está levantado?");
+      boletasAPI = [];
+      render();
+    }
+  }
+
+  // ---- Export CSV (usa data combinada + filtros)
   function exportCSV(){
-    const all = applyFilters(load());
-    const header = ["fecha","orden","cliente","categorias","total"];
-    const lines = [header.join(",")].concat(all.map(o=>
+    const all       = getBoletasCombinadas();
+    const filtered  = applyFilters(all);
+    const header    = ["fecha","boletaId","ordenId","total"];
+    const lines     = [header.join(",")].concat(filtered.map(b =>
       [
-        new Date(o.ts).toISOString(),
-        o.id,
-        `"${(o.customer||"").replace(/"/g,'""')}"`,
-        `"${(o.cats||[]).join("|").replace(/"/g,'""')}"`,
-        o.total
+        new Date(b.fecha).toISOString(),
+        b.id,
+        b.ordenId || "",
+        b.total || 0
       ].join(",")
     ));
     const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
@@ -259,42 +280,38 @@
     URL.revokeObjectURL(a.href);
   }
 
-  // ---- Simular venta (para evidencias rápidas)
+  // ---- Simular venta (solo front, no toca el store del backend)
   function simulateSale(){
-    const names = ["Ana","Pedro","Sofía","Diego","Camila","Luis"];
-    const cats = ["Entradas","Platos","Postres"];
-    const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
-
-    const sale = {
-      id: "ORD-"+String(Math.floor(Math.random()*900000)+100000),
-      ts: new Date().toISOString(),
-      customer: names[rnd(0,names.length-1)]+" "+["L.","G.","R.","M."][rnd(0,3)],
-      cats: Array.from(new Set(Array.from({length:rnd(1,3)}, _=> cats[rnd(0,2)]))).sort(),
-      total: 3000*rnd(2,6) + 500*rnd(0,4)
+    const now = new Date();
+    const fake = {
+      id:      "SIM-" + Math.floor(Math.random()*900000 + 100000),
+      ordenId: "ORD-" + Math.floor(Math.random()*900000 + 100000),
+      total:   3000 * (2 + Math.floor(Math.random()*4)),
+      fecha:   now.toISOString()
     };
-    const all = load();
-    all.push(sale);
-    save(all);
+    boletasSimuladas.push(fake);
     render();
   }
 
   // ---- Eventos UI
   $("btn-apply").addEventListener("click", render);
   $("btn-clear").addEventListener("click", ()=>{
-    $("from").value = ""; $("to").value = ""; render();
+    $("from").value = "";
+    $("to").value   = "";
+    render();
   });
   $("btn-export").addEventListener("click", exportCSV);
   $("btn-print").addEventListener("click", ()=>window.print());
   $("btn-seed").addEventListener("click", simulateSale);
 
-  // Init
-  seedIfEmpty();
   // Prefill: rango de este mes
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
   $("from").value = first.toISOString().slice(0,10);
-  $("to").value = now.toISOString().slice(0,10);
-  render();
+  $("to").value   = now.toISOString().slice(0,10);
+
+  // Cargar inicialmente desde la API
+  loadFromAPI();
 })();
 </script>
 </body>

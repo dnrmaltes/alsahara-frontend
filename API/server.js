@@ -13,6 +13,8 @@ const productsRoutes = require("./src/routes/products.routes");
 const orderRoutes    = require("./src/routes/order.routes");
 const boletaRoutes   = require("./src/routes/boleta.routes");
 const reportesRoutes = require("./src/routes/reportes.routes");
+const clientesRoutes = require("./src/routes/clientes.routes");
+app.use("/api/clientes", clientesRoutes);
 
 // Validador para detectar errores de exportación
 function assertIsRouter(r, name) {
